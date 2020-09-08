@@ -57,15 +57,14 @@ class Switch:
     s.result_list
     """
 
-    def __init__(self, switch_val, fallthrough=False):
+    def __init__(self, switch_val):
         self._switch_val = switch_val
-        self._fallthrough = fallthrough
-        self._prev_fall = False
         self._used_default = False
-        self._has_returned = False
+        self._found_match = False
         self._result = None
         self._used_keys = set()
         self._func_stack = []
+        self._traceback = None
 
         self._has_default = False
 
@@ -74,10 +73,10 @@ class Switch:
 
     def default(self, func):
         self._has_default = True
-        if not self._func_stack:
+        if not self._found_match:
             self._func_stack.append(func)
 
-    def case(self, key, function, fallthrough=False):
+    def case(self, key, function):
         if self._has_default:
             raise CaseAfterDefaultException("Case after default is prohibited.")
 
@@ -88,24 +87,17 @@ class Switch:
 
         self._used_keys.add(key)
         if key == self._switch_val:
-            if self._prev_fall:
+            if not self._found_match:
                 self._func_stack.append(function)
 
-
-            if self._func_stack:
-                if fallthrough or self._fallthrough:
-                    self._func_stack.append(function)
-            else:
-                self._func_stack.append(function)
-
-        if fallthrough:
-            self._prev_fall = True
-        if self._fallthrough and not fallthrough:
-            pass
+            self._found_match = True
 
     def __exit__(self, type, value, traceback):
         if value:
             raise value
+
+        if traceback:
+            self._traceback = traceback
 
         if not self._func_stack:
             raise NoDefaultException("No default case given or no matches.")
@@ -123,6 +115,10 @@ class Switch:
             raise NoResultException("No result has been returned from any function.")
         else:
             return self._result
+
+    @property
+    def traceback(self):
+        return self._traceback
 
 
 switch = Switch
