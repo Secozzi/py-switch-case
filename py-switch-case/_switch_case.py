@@ -62,7 +62,7 @@ class Switch:
         self._used_default = False
         self._found_match = False
         self._result = None
-        self._used_keys = set()
+        self._used_keys = []
         self._func_stack = []
         self._traceback = None
 
@@ -82,22 +82,57 @@ class Switch:
 
         if key in self._used_keys:
             raise DuplicateKeyException(f"'{key}' is used in more than one case.")
+
         if not callable(function):
             raise UncallableFuncException(f"Function '{function}' is not callable.")
 
-        self._used_keys.add(key)
-        if key == self._switch_val:
-            if not self._found_match:
-                self._func_stack.append(function)
+        self._used_keys.append(key)
+        if not self._found_match:
+            if isinstance(key, str) or isinstance(key, int) or isinstance(key, float):
+                if self._switch_val == key:
+                    self._func_stack.append(function)
+                    self._found_match = True
 
-            self._found_match = True
+            if isinstance(key, list) or isinstance(key, range):
+                if self._switch_val in key:
+                    self._func_stack.append(function)
+                    self._found_match = True
+
+    def match(self, regex, function, convert=True, compilation_flag=None):
+        if not self._found_match:
+            if compilation_flag:
+                _reg = re.compile(regex, compilation_flag)
+            else:
+                _reg = re.compile(regex)
+
+            if convert:
+                _to_match = str(self._switch_val)
+            else:
+                _to_match = self._switch_val
+
+            if not isinstance(_to_match, str):
+                raise InvalidRegexException(f"Cannot use regex on {type(_to_match)}")
+
+            _match = _reg.match(_to_match)
+
+            if _match:
+                self._func_stack.append(function)
+                self._found_match = True
+
+    def call(self, callable_func, function):
+        if not self._found_match:
+            if not callable(callable_func):
+                raise InvalidCallException(f"{callable_func} is not callable")
+
+            _result = callable_func(self._switch_val)
+
+            if _result:
+                self._func_stack.append(function)
+                self._found_match = True
 
     def __exit__(self, type, value, traceback):
         if value:
             raise value
-
-        if traceback:
-            self._traceback = traceback
 
         if not self._func_stack:
             raise NoDefaultException("No default case given or no matches.")
@@ -115,10 +150,6 @@ class Switch:
             raise NoResultException("No result has been returned from any function.")
         else:
             return self._result
-
-    @property
-    def traceback(self):
-        return self._traceback
 
 
 switch = Switch
