@@ -6,8 +6,8 @@ class SwitchBaseException(Exception):
     pass
 
 
-class InvalidCallException(SwitchBaseException):
-    """Exception when a call is invalid"""
+class NotImplementedException(SwitchBaseException):
+    """Exception when a case is matched with an unimplemented type"""
     pass
 
 
@@ -43,18 +43,18 @@ class NoResultException(SwitchBaseException):
 
 class Switch:
     """
-    py-switch-case allows pytohn to utilize switch and case statements
-    found in other languages.
+    py-switch-case allows python to utilize switch and case statements
+    found in other languages. Note: refrain from using anything besides
+    strings, float, and integers as value unless absolutely necessary.
 
     Usage:
     with switch(val) as s:
         s.case(4, do_stuff)
         s.call(lambda t: t < 5, do_other_stuff)
-        s.match(reg1, reg2)
+        s.match(reg1, do_third_stuff)
         s.default(default_stuff)
 
-    s.result
-    s.result_list
+    print(s.result)
     """
 
     def __init__(self, switch_val):
@@ -64,8 +64,8 @@ class Switch:
         self._result = None
         self._used_keys = []
         self._func_stack = []
-        self._traceback = None
 
+        self._has_returned = False
         self._has_default = False
 
     def __enter__(self):
@@ -77,6 +77,21 @@ class Switch:
             self._func_stack.append(func)
 
     def case(self, key, function):
+        """
+        Define a case.
+
+        Cases can be called with either:
+            * String, Integer, or Float - This will try to match with ==
+            * List or Range - This will use Python's 'in' keyword
+            * Anything else and it will throw an error
+
+        :param key: str, int, float, list, or range
+            Key to match switch statement with
+        :param function: Function
+            Function to call if matched
+        :return:
+            Doesn't return
+        """
         if self._has_default:
             raise CaseAfterDefaultException("Case after default is prohibited.")
 
@@ -93,18 +108,39 @@ class Switch:
                     self._func_stack.append(function)
                     self._found_match = True
 
-            if isinstance(key, list) or isinstance(key, range):
+            elif isinstance(key, list) or isinstance(key, range):
                 if self._switch_val in key:
                     self._func_stack.append(function)
                     self._found_match = True
 
-    def match(self, regex, function, convert=True, compilation_flag=None):
-        if not self._found_match:
-            if compilation_flag:
-                _reg = re.compile(regex, compilation_flag)
             else:
-                _reg = re.compile(regex)
+                raise NotImplementedException(f"Case with type '{type(key)} is not yet supported'")
 
+    def match(self, regex, function, convert=True, compilation_flag=None):
+        """
+        Match against a regular expression.
+
+        :param regex: str
+            String representation of regular expression
+        :param function: Function
+            Function to call if match
+        :param convert: Bool
+            Convert switch value to string. Set to false to not convert. True by default
+        :param compilation_flag: str
+            Regex flags
+        :return:
+            Doesn't return
+        """
+        if compilation_flag:
+            _reg = re.compile(regex, compilation_flag)
+        else:
+            _reg = re.compile(regex)
+
+        if _reg in self._used_keys:
+            raise DuplicateKeyException(f"Regular expression '{_reg}' is used in more than one case.")
+
+        self._used_keys.append(_reg)
+        if not self._found_match:
             if convert:
                 _to_match = str(self._switch_val)
             else:
@@ -120,9 +156,23 @@ class Switch:
                 self._found_match = True
 
     def call(self, callable_func, function):
+        """
+        Callable match.
+
+        :param callable_func: Function
+            Function to match against. Must contain one and only one argument
+        :param function: Function
+            Function to call if match
+        :return:
+            Doesn't return
+        """
+        if callable_func in self._used_keys:
+            raise DuplicateKeyException(f"Function '{callable_func}' is used in more than one case.")
+
+        self._used_keys.append(callable_func)
         if not self._found_match:
             if not callable(callable_func):
-                raise InvalidCallException(f"{callable_func} is not callable")
+                raise UncallableFuncException(f"{callable_func} is not callable")
 
             _result = callable_func(self._switch_val)
 
@@ -140,9 +190,10 @@ class Switch:
         if not self._has_default:
             raise NoDefaultException("No defult case given.")
 
-        self._has_returned = True
         for func in self._func_stack:
             self._result = func()
+        if self._result:
+            self._has_returned = True
 
     @property
     def result(self):
